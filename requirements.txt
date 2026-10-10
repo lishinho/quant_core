@@ -1,0 +1,7 @@
+# quant_core 核心运行仅依赖 Python 3.9+ 标准库 + numpy，可直接运行。
+#
+# 接入真实行情/飞书/MySQL 时按需安装以下可选依赖：
+# akshare>=1.12.0      # A股 行情、分红、龙虎榜等真实数据（data 层适配）
+# requests>=2.31.0     # 飞书 OpenAPI 调用（默认使用标准库 urllib，无需安装）
+# pymysql>=1.1.0       # MySQL 写入 sink（默认数据写入后端）
+# lightgbm>=4.0.0      # V9 策略可选，未装时自动用内置 GBDT 兜底

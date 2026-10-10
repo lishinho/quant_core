@@ -1,0 +1,43 @@
+{
+  "lane": "lhb_v3x",
+  "strategy": "LHB_V3X",
+  "strategy_name": "龙头涨停-LHB_V3X",
+  "enabled": true,
+  "selection": {
+    "exclude_st": true,
+    "exclude_abnormal_market": true,
+    "max_first_seal_minutes": 120,
+    "min_history_days": 30
+  },
+  "scoring": {
+    "weights": {
+      "seal_time": 0.15,
+      "streak": 0.2,
+      "theme": 0.2,
+      "leader": 0.15,
+      "quality": 0.15,
+      "lhb_fund": 0.1,
+      "safety": 0.05
+    },
+    "broken_board_penalty": 25,
+    "weak_seal_penalty": 10,
+    "premarket_bull_bonus": 8,
+    "premarket_bear_penalty": 15,
+    "high_risk_cancel_threshold": 55
+  },
+  "sentiment": {
+    "weak_limit_up_count": 20,
+    "weak_broken_rate": 0.35,
+    "panic_limit_down_count": 50,
+    "normal_buy_count": 3,
+    "weak_buy_count": 1
+  },
+  "trade": {
+    "buy_score_threshold": 65.0,
+    "max_positions": 5,
+    "per_position_weight": 0.18,
+    "stop_loss": -0.05,
+    "take_profit": 0.05,
+    "allow_add": false
+  }
+}

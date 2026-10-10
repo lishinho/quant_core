@@ -1,0 +1,37 @@
+{
+  "lane": "dividend_v3",
+  "strategy": "V3",
+  "strategy_name": "红利低波-缩量回踩",
+  "enabled": true,
+  "pool": {
+    "sources": ["dividend_low_vol", "hs300", "zz500"],
+    "min_dividend_yield": 0.03,
+    "min_listing_days": 365,
+    "exclude_st": true,
+    "exclude_suspended": true,
+    "exclude_risk_warning": true,
+    "risk_blacklist": []
+  },
+  "candidate": {
+    "volume_shrink_days": 5,
+    "volume_shrink_ratio_max": 0.85,
+    "ma_mid_window": 20,
+    "price_near_ma_band": 0.08,
+    "ma5_ma20_dev_max": 0.05,
+    "min_history_days": 60
+  },
+  "scoring": {
+    "weights": {"fundamental": 0.3, "industry": 0.15, "valuation_momentum": 0.2, "capital": 0.15, "event": 0.1, "macro": 0.1},
+    "industry_roe_bonus": 6.0,
+    "industry_quality_bonus": 4.0
+  },
+  "trade": {
+    "buy_score_threshold": 67.0,
+    "max_positions": 10,
+    "per_position_weight": 0.1,
+    "take_profit": 0.2,
+    "stop_loss": -0.08,
+    "max_hold_days": 60,
+    "allow_add": false
+  }
+}

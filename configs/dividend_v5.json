@@ -1,0 +1,37 @@
+{
+  "lane": "dividend_v5",
+  "strategy": "V5",
+  "strategy_name": "红利低波-布林上穿",
+  "enabled": true,
+  "pool": {
+    "sources": ["dividend_low_vol", "hs300", "zz500", "dividend_extended"],
+    "min_dividend_yield": 0.025,
+    "min_listing_days": 365,
+    "exclude_st": true,
+    "exclude_suspended": true,
+    "exclude_risk_warning": true,
+    "risk_blacklist": []
+  },
+  "candidate": {
+    "boll_window": 20,
+    "boll_k": 2.0,
+    "low_region_lookback": 20,
+    "was_below_band": "lower",
+    "cross_above_band": "middle",
+    "require_volume_ok": true,
+    "require_trend_ok": true,
+    "min_history_days": 60
+  },
+  "scoring": {
+    "weights": {"fundamental": 0.25, "industry": 0.15, "valuation_momentum": 0.25, "capital": 0.15, "event": 0.1, "macro": 0.1}
+  },
+  "trade": {
+    "buy_score_threshold": 70.0,
+    "max_positions": 10,
+    "per_position_weight": 0.1,
+    "take_profit": 0.2,
+    "stop_loss": -0.08,
+    "max_hold_days": 60,
+    "allow_add": false
+  }
+}

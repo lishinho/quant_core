@@ -1,0 +1,38 @@
+{
+  "lane": "dividend_v7",
+  "strategy": "V7",
+  "strategy_name": "红利低波-布林网格",
+  "enabled": true,
+  "pool": {
+    "fixed_universe": [
+      "600900", "601088", "600036", "601398", "600519",
+      "000333", "600028", "601857", "600309", "601166"
+    ],
+    "exclude_st": true,
+    "exclude_suspended": true
+  },
+  "candidate": {
+    "boll_window": 20,
+    "boll_k": 2.0
+  },
+  "grid": {
+    "layer2_drop": -0.03,
+    "layer3_drop": -0.05,
+    "max_layers": 3,
+    "per_layer_weight": 0.09
+  },
+  "exit": {
+    "take_profit_half": 0.05,
+    "take_profit_all": 0.10,
+    "macd_death_cross_in_profit": true,
+    "single_day_drop": -0.05,
+    "catastrophic_loss": -0.08,
+    "max_hold_days": 90
+  },
+  "risk": {
+    "portfolio_drawdown_pause": 0.08
+  },
+  "scoring": {
+    "weights": {"fundamental": 0.3, "industry": 0.1, "valuation_momentum": 0.2, "capital": 0.1, "event": 0.1, "macro": 0.2}
+  }
+}

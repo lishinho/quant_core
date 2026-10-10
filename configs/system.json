@@ -1,0 +1,44 @@
+{
+  "runtime": {
+    "initial_capital": 1000000,
+    "fee_rate": 0.0003,
+    "min_fee": 5.0,
+    "lot_size": 100,
+    "data_provider": "auto",
+    "provider_timeout": 20,
+    "provider_retries": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "lanes": {
+    "dividend_v3": {"enabled": true, "config": "configs/dividend_v3.json", "base_route": "main"},
+    "dividend_v5": {"enabled": true, "config": "configs/dividend_v5.json", "base_route": "main"},
+    "dividend_v7": {"enabled": true, "config": "configs/dividend_v7.json", "base_route": "main"},
+    "dividend_v8_1": {"enabled": true, "config": "configs/dividend_v8_1.json", "base_route": "main"},
+    "dividend_v8_2": {"enabled": true, "config": "configs/dividend_v8_2.json", "base_route": "main"},
+    "dividend_v9": {"enabled": true, "config": "configs/dividend_v9.json", "base_route": "main"},
+    "lhb_v3x": {"enabled": true, "config": "configs/lhb_v3x.json", "base_route": "main"}
+  },
+  "feishu": {
+    "main": {
+      "type": "mysql",
+      "app_token_env": "FEISHU_MAIN_APP_TOKEN",
+      "app_id_env": "FEISHU_APP_ID",
+      "app_secret_env": "FEISHU_APP_SECRET",
+      "tables": {
+        "candidates": "candidates",
+        "plans": "plans",
+        "positions": "positions",
+        "fills": "fills",
+        "summary": "summary"
+      }
+    }
+  },
+  "paths": {
+    "state": "data/state",
+    "artifacts": "data/artifacts",
+    "cache": "data/cache",
+    "reports": "data/reports",
+    "models": "data/models",
+    "feishu_local": "data/feishu"
+  }
+}
