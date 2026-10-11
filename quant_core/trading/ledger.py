@@ -57,6 +57,22 @@ class Ledger:
                     return True
         return False
 
+    def iter_fills(self) -> List[Dict[str, Any]]:
+        """读取全部历史成交（fills.jsonl 只追加），供外部存储全量对账。"""
+        if not os.path.exists(self.fills_path):
+            return []
+        out: List[Dict[str, Any]] = []
+        with open(self.fills_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return out
+
     # --------------------------------------------------------------- 计划
     def add_plan(self, plan: TradePlan) -> bool:
         """幂等加入：相同 plan_key 已存在则忽略。返回是否新增。"""

@@ -346,14 +346,32 @@ def make_candidate(m: StockMetrics, dims: Dict[str, float], weights: Dict[str, f
 
 
 # ------------------------------------------------------------------ 买入闸门
+def pending_buy_count(ctx: RunContext, trade_date: Optional[str] = None) -> int:
+    """账本中将于指定日（默认次日）执行的 PENDING 买单数。
+
+    这些计划次日开盘即变成持仓，计算新开仓名额时必须计入，
+    否则 --force 重跑会因只看到当前持仓而重复释放名额。
+    """
+    td = trade_date or ctx.next_date
+    return sum(1 for p in ctx.ledger.plans
+               if p.status == "PENDING" and p.side == "BUY" and p.trade_date == td)
+
+
+def open_slots(ctx: RunContext, max_positions: int) -> int:
+    """新开仓可用名额 = 上限 - 现持仓 - 次日待成交买单。"""
+    return max(0, max_positions
+               - ctx.ledger.position_count()
+               - pending_buy_count(ctx))
+
+
 def buy_allowed(ctx: RunContext, cfg: Dict[str, Any], code: str, score: float) -> Tuple[bool, str]:
     trade = cfg["trade"]
     if score < trade["buy_score_threshold"]:
         return False, f"分数{score:.1f}<{trade['buy_score_threshold']}"
     if code in ctx.ledger.positions:
         return False, "已持有"
-    if ctx.ledger.position_count() >= trade["max_positions"]:
-        return False, "持仓数达上限"
+    if open_slots(ctx, trade["max_positions"]) <= 0:
+        return False, "持仓数达上限（含次日待成交买单）"
     return True, ""
 
 

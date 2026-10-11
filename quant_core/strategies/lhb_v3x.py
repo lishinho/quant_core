@@ -138,12 +138,20 @@ class LhbV3xStrategy(BaseStrategy):
 
         candidates: List[Candidate] = []
         plans: List[TradePlan] = []
+        # 重跑防护：账本中次日待成交买单已占用当日名额，避免 force 重跑
+        # 把名额顺延给排名靠后的票而不断累积新计划
+        used = sum(1 for p in ctx.ledger.plans
+                   if p.status == "PENDING" and p.side == "BUY"
+                   and p.trade_date == ctx.next_date)
+        pending_codes = {p.code for p in ctx.ledger.plans
+                         if p.status == "PENDING" and p.side == "BUY"
+                         and p.trade_date == ctx.next_date}
         for score, info, dims, reasons in scored:
-            if len(plans) >= buy_count:
+            if len(plans) + used >= buy_count:
                 break
             if score < cfg["trade"]["buy_score_threshold"]:
                 continue
-            if info.code in ctx.ledger.positions:
+            if info.code in ctx.ledger.positions or info.code in pending_codes:
                 continue
             cand = Candidate(
                 code=info.code, name=info.name, date=ctx.date, score=score,

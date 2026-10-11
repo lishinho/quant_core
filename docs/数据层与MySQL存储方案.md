@@ -150,3 +150,24 @@
 3. 是否还需要 Excel 导出作为人工查看/备份渠道？（目前未实现）
 4. 数据源优先级（新浪 → 东财直连 → 腾讯 → akshare）是否认可？
 5. clist 全市场快照按 best-effort + 历史快照降级处理是否可接受？
+
+---
+
+## 7. v3 增补（2026-10-11 已实施）
+
+真实全 lane 实跑后发现两个边界问题，按"表少、易读、易扩展"原则修复，**表数量仍为 5 张**：
+
+1. **`--force` 重跑名额累积**：LHB/V3/V5/V8.1/V8.2/V9 的开仓名额只减现持仓，未计入账本中次日待成交的 PENDING 买单，重跑会把名额顺延给排名靠后的票。
+   - 修复：`div_common.open_slots() = max_positions - 现持仓 - 次日PENDING买单数`，LHB `buy_count` 同步扣减已占用名额。
+2. **账本存量计划不补写 MySQL**：sink 原只同步"本次新计划/本次成交"，早于建库的 PENDING 计划在库中永久缺失。
+   - 修复：`plans`/`fills` 改为按**账本全量镜像**（每次日跑 upsert 全量，幂等不重复）；`Ledger.iter_fills()` 读取只追加成交账。
+
+表结构调整（最小增量）：
+
+- `plans` 新增 `status VARCHAR(16) NOT NULL DEFAULT 'PENDING'` 独立列 + `(status, trade_date)` 复合索引，直接支持"明天买什么"查询；历史行从 fields JSON 回填
+- 索引 `idx_trade_date` 升级为 `idx_status_trade`
+- `migration_v3.sql`（存储过程封装、可重复执行）
+- sink 字段别名修正：`TradePlan.price_hint → plans.price`、`Fill.date → fills.trade_date`
+- `fields` JSON 内嵌套对象（run_meta/anomalies/dim_scores）落库时还原为原生 JSON，可直接 `JSON_EXTRACT`
+
+验证：69 个单测通过；migration_v3 连跑两次成功；真实库 7 个 PENDING 计划补写、`--force` 重跑仍 7 行无累积；全新库 schema.sql v3 建表通过。查询指引见 [MySQL查询SOP.md](MySQL查询SOP.md)。

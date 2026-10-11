@@ -51,7 +51,7 @@ class V5Strategy(BaseStrategy):
 
         candidates = dc.filter_buy_candidates(ctx, cfg, scored, rule)
         plans: List[TradePlan] = []
-        slots = cfg["trade"]["max_positions"] - ctx.ledger.position_count()
+        slots = dc.open_slots(ctx, cfg["trade"]["max_positions"])
         for cand in candidates:
             if slots <= 0:
                 break

@@ -51,15 +51,16 @@ CREATE TABLE IF NOT EXISTS plans (
   weight      DECIMAL(10,4)         DEFAULT NULL COMMENT '目标仓位权重',
   reason      VARCHAR(255)          DEFAULT NULL COMMENT '计划原因',
   tag         VARCHAR(32)           DEFAULT NULL COMMENT '计划标签，如 TP_HALF',
+  status      VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT '计划状态 PENDING/FILLED/CANCELLED',
   fields      JSON                  DEFAULT NULL COMMENT '其余可变字段',
   created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_plan_key (plan_key),
   KEY idx_lane_gen_date (lane, gen_date),
-  KEY idx_trade_date (trade_date),
+  KEY idx_status_trade (status, trade_date),
   KEY idx_code (code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='T+1 交易计划';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='T+1 交易计划（账本生命周期镜像）';
 
 -- ---------------------------------------------------------------------------
 -- 成交记录：一笔计划至多一笔成交（plan_key 唯一），经 plan_key 关联 plans

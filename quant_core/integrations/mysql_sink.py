@@ -36,7 +36,7 @@ _KEY_COLUMN = {
 _COLUMN_FIELDS = {
     "candidates": {"lane", "date", "code", "name", "score"},
     "plans": {"lane", "code", "name", "side", "trade_date", "gen_date",
-              "qty", "price", "amount", "weight", "reason", "tag"},
+              "qty", "price", "amount", "weight", "reason", "tag", "status"},
     "fills": {"lane", "code", "side", "trade_date", "qty", "price",
               "amount", "fee"},
     "positions": {"lane", "date", "code", "name", "qty", "avg_cost",
@@ -44,6 +44,12 @@ _COLUMN_FIELDS = {
     "summary": {"lane", "date", "status", "strategy", "strategy_name",
                 "equity", "cash", "equity_peak", "drawdown", "position_count",
                 "candidate_count", "new_plan_count", "fill_count"},
+}
+
+# 表名 -> 模型字段名到列名的别名（模型命名与读模型列名不一致时映射）
+_FIELD_ALIASES = {
+    "plans": {"price_hint": "price"},  # TradePlan.price_hint -> plans.price
+    "fills": {"date": "trade_date"},   # Fill.date -> fills.trade_date
 }
 
 # DATE 列：空字符串归一化为 NULL，避免严格模式下写入 zero date
@@ -83,28 +89,43 @@ class MysqlSink(BaseSink):
 
     def _split(self, table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         cols = _COLUMN_FIELDS.get(table, set())
+        aliases = _FIELD_ALIASES.get(table, {})
         col_vals: Dict[str, Any] = {}
         rest: Dict[str, Any] = {}
         for k, v in fields.items():
-            if k in cols:
-                if v is None or (k in _DATE_COLUMNS and v == ""):
-                    col_vals[k] = None
-                elif k in _INT:
+            col = aliases.get(k, k)
+            if col in cols:
+                if v is None or (col in _DATE_COLUMNS and v == ""):
+                    col_vals[col] = None
+                elif col in _INT:
                     try:
-                        col_vals[k] = int(v)
+                        col_vals[col] = int(v)
                     except (TypeError, ValueError):
-                        col_vals[k] = None
-                elif k in _NUMERIC:
+                        col_vals[col] = None
+                elif col in _NUMERIC:
                     try:
-                        col_vals[k] = float(v)
+                        col_vals[col] = float(v)
                     except (TypeError, ValueError):
-                        col_vals[k] = None
+                        col_vals[col] = None
                 else:
-                    col_vals[k] = str(v)[:1024]
+                    col_vals[col] = str(v)[:1024]
             else:
-                rest[k] = v
+                rest[k] = self._embed_json(v)
         col_vals["fields"] = json.dumps(rest, ensure_ascii=False, default=str) if rest else None
         return col_vals
+
+    @staticmethod
+    def _embed_json(v: Any) -> Any:
+        """runner 会把 dict/list 预序列化成 JSON 字符串；落 JSON 列时还原为
+        原生对象，避免 fields 内出现双重编码、无法直接 JSON_EXTRACT。"""
+        if isinstance(v, str):
+            s = v.strip()
+            if s[:1] in ("{", "["):
+                try:
+                    return json.loads(s)
+                except ValueError:
+                    return v
+        return v
 
     def upsert(self, table: str, key_field: str, key: str, fields: Dict[str, Any]) -> bool:
         row = self._split(table, fields)

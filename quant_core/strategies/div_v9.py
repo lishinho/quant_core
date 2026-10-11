@@ -74,8 +74,8 @@ class V9Strategy(BaseStrategy):
         top_cut = max(1, int(len(scored_final) * sel["top_pct"]))
         candidates: List[Candidate] = []
         plans: List[TradePlan] = []
-        daily_picks = 0
-        slots = cfg["trade"]["max_positions"] - ctx.ledger.position_count()
+        daily_picks = dc.pending_buy_count(ctx)
+        slots = dc.open_slots(ctx, cfg["trade"]["max_positions"])
         for rank, (final, m, dims, model_pct, rule_score) in enumerate(scored_final):
             if rank >= top_cut or final < sel["final_score_min"]:
                 continue

@@ -130,10 +130,11 @@ data/
 brew install mysql
 brew services start mysql
 
-# 创建库表（全新部署）
+# 创建库表（全新部署，当前 v3）
 mysql -u root < scripts/schema.sql
-# 已部署 v1 表结构的环境：在线迁移到 v2（可重复执行）
+# 已部署旧表结构的环境：按顺序在线迁移（脚本均可重复执行）
 mysql -u root quant_core < scripts/migration_v2.sql
+mysql -u root quant_core < scripts/migration_v3.sql
 ```
 
 连接参数通过环境变量传入（默认连本地 3306、root 无密码、库 `quant_core`）：
@@ -146,16 +147,22 @@ export MYSQL_PASSWORD=
 export MYSQL_DB=quant_core
 ```
 
-库表结构 v2（幂等写入，复合业务唯一键，`INSERT ... ON DUPLICATE KEY UPDATE`；
-金额/价格为 DECIMAL，可变字段统一进 `fields` JSON）：
+库表结构 v3（仅 5 张表；幂等写入，复合业务唯一键，`INSERT ... ON DUPLICATE KEY UPDATE`；
+金额/价格为 DECIMAL，可变字段统一进 `fields` JSON，便于扩展）：
 
-| 表 | 唯一键 | 主要列 |
-|---|---|---|
-| `candidates` | `(lane, date, code)` | lane, date, code, name, score, fields(JSON) |
-| `plans` | `plan_key` | lane, code, name, side, trade_date, gen_date, qty, price, amount, weight, reason, tag, fields(JSON) |
-| `fills` | `plan_key` | lane, code, side, trade_date, qty, price, amount, fee, fields(JSON) |
-| `positions` | `(lane, date, code)` | lane, date, code, name, qty, avg_cost, last_price, market_value, pnl, pnl_pct, fields(JSON) |
-| `summary` | `(lane, date)` | lane, date, status, strategy, equity, cash, equity_peak, drawdown, position_count, candidate_count, new_plan_count, fill_count, fields(JSON) |
+| 表 | 唯一键 | 粒度 | 主要列 |
+|---|---|---|---|
+| `candidates` | `(lane, date, code)` | 每日候选 | lane, date, code, name, score, fields(JSON) |
+| `plans` | `plan_key` | 计划生命周期 | lane, code, name, side, trade_date, gen_date, qty, price, weight, reason, tag, **status**, fields(JSON) |
+| `fills` | `plan_key` | 成交流水 | lane, code, side, trade_date, qty, price, amount, fee, fields(JSON) |
+| `positions` | `(lane, date, code)` | 每日持仓快照 | lane, date, code, name, qty, avg_cost, last_price, market_value, pnl, pnl_pct, fields(JSON) |
+| `summary` | `(lane, date)` | lane 日汇总 | lane, date, status, strategy, equity, cash, drawdown, position_count, candidate_count, new_plan_count, fill_count, fields(JSON) |
+
+同步语义：`candidates`/`positions`/`summary` 按日切片只写当日；
+`plans`/`fills` 是生命周期表，日跑时按**账本全量镜像**（含历史 PENDING/FILLED/CANCELLED），
+漏写、换库、重跑都能补齐且不产生重复行。
+
+> 日常怎么查库（连接、看图、排障步骤与常用 SQL）见 [docs/MySQL查询SOP.md](docs/MySQL查询SOP.md)。
 
 ### 其他写入后端
 

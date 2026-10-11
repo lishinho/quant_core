@@ -78,6 +78,24 @@ class TestLHBSelection(unittest.TestCase):
         self.assertTrue(is_abnormal_market("430001"))
         self.assertTrue(is_abnormal_market("000003退"))
 
+    def test_force_rerun_no_quota_accumulation(self):
+        # 同一账本上重跑信号：次日待成交买单已占名额，不得把名额顺延给后面的票
+        env = TempEnv("lhb_v3x")
+        pool = ai_leader_pool()
+        pool += [limit_up(f"6003{idx:02d}", f"冷门{idx}", streak=1, seal="1330",
+                          seal_amount=0.1e8, amount=1e8, circ_mv=2e9,
+                          themes=[f"题材{idx}"])
+                 for idx in range(26)]
+        env.hub.zt = pool
+        _, plans1, _ = LhbV3xStrategy().signals(env.ctx)
+        self.assertEqual(len(plans1), 3)
+        env.ledger.save()
+        # 模拟 --force：基于已含 3 个 PENDING 计划的账本再跑一次
+        _, plans2, _ = LhbV3xStrategy().signals(env.ctx)
+        self.assertEqual(plans2, [])  # 无新增计划
+        self.assertEqual(len(env.ledger.plans), 3)  # 不累积
+        self.assertTrue(all(p.status == "PENDING" for p in env.ledger.plans))
+
 
 class TestLHBExits(unittest.TestCase):
     def _position(self, env, code="600111", cost=10.0):

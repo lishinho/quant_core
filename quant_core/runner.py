@@ -161,13 +161,19 @@ def run_lane(bundle: ConfigBundle, date: str, hub: DataHub,
     artifacts.write("summary", summary)
     artifacts.mark_done()
 
-    # 6) 幂等写入飞书 Base（失败不影响本地产物）
-    _sync_feishu(bundle, summary, sinks)
+    # 6) 幂等写入外部 sink（失败不影响本地产物）
+    _sync_sink(bundle, summary, ledger, sinks)
     return summary
 
 
-def _sync_feishu(bundle: ConfigBundle, summary: Dict[str, Any],
-                 sinks: Optional[Dict[str, BaseSink]]) -> None:
+def _sync_sink(bundle: ConfigBundle, summary: Dict[str, Any],
+               ledger: Ledger, sinks: Optional[Dict[str, BaseSink]]) -> None:
+    """把本地产物/账本幂等同步到外部 sink（MySQL/飞书/本地 JSONL）。
+
+    candidates / positions / summary 是按日切片，只同步当日；
+    plans / fills 是生命周期对象，按账本全量镜像（含历史 PENDING/FILLED/
+    CANCELLED），保证重跑、换库、漏写后都能对账补齐，且 upsert 不产生重复行。
+    """
     if sinks is None:
         return
     lane = bundle.lane_name
@@ -184,10 +190,12 @@ def _sync_feishu(bundle: ConfigBundle, summary: Dict[str, Any],
             sink.upsert(tables["candidates"], "key",
                         stable_key(lane, c["code"], date),
                         _sanitize({"lane": lane, "date": date, **c}))
-        for p in summary["new_plans"] + summary.get("exit_plans", []):
-            sink.upsert(tables["plans"], "plan_key", p["plan_key"],
-                        _sanitize({"lane": lane, **p}))
-        for f in summary["executed_fills"]:
+        # plans：账本全量镜像（同一 plan_key 幂等更新，含状态变更）
+        for p in ledger.plans:
+            sink.upsert(tables["plans"], "plan_key", p.plan_key,
+                        _sanitize({"lane": lane, **p.to_dict()}))
+        # fills：只追加成交账全量镜像
+        for f in ledger.iter_fills():
             sink.upsert(tables["fills"], "plan_key", f["plan_key"],
                         _sanitize({"lane": lane, **f}))
         for pos in summary["positions"]:

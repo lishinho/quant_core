@@ -68,7 +68,7 @@ class V82Strategy(BaseStrategy):
 
         candidates: List[Candidate] = []
         plans: List[TradePlan] = []
-        slots = cfg["trade"]["max_positions"] - ctx.ledger.position_count()
+        slots = dc.open_slots(ctx, cfg["trade"]["max_positions"])
         for m, dims, reasons in trigger:
             cand = dc.make_candidate(
                 m, dims, weights,
