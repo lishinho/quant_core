@@ -130,8 +130,10 @@ data/
 brew install mysql
 brew services start mysql
 
-# 创建库表（建表 SQL 见下）
+# 创建库表（全新部署）
 mysql -u root < scripts/schema.sql
+# 已部署 v1 表结构的环境：在线迁移到 v2（可重复执行）
+mysql -u root quant_core < scripts/migration_v2.sql
 ```
 
 连接参数通过环境变量传入（默认连本地 3306、root 无密码、库 `quant_core`）：
@@ -144,15 +146,16 @@ export MYSQL_PASSWORD=
 export MYSQL_DB=quant_core
 ```
 
-库表结构（幂等写入，以业务键做唯一约束，`INSERT ... ON DUPLICATE KEY UPDATE`）：
+库表结构 v2（幂等写入，复合业务唯一键，`INSERT ... ON DUPLICATE KEY UPDATE`；
+金额/价格为 DECIMAL，可变字段统一进 `fields` JSON）：
 
 | 表 | 唯一键 | 主要列 |
 |---|---|---|
-| `candidates` | `key` | lane, date, code, name, score, dim_scores(JSON), reasons(JSON), fields(JSON) |
-| `plans` | `plan_key` | lane, code, name, side, trade_date, qty, price, weight, reason, fields(JSON) |
+| `candidates` | `(lane, date, code)` | lane, date, code, name, score, fields(JSON) |
+| `plans` | `plan_key` | lane, code, name, side, trade_date, gen_date, qty, price, amount, weight, reason, tag, fields(JSON) |
 | `fills` | `plan_key` | lane, code, side, trade_date, qty, price, amount, fee, fields(JSON) |
-| `positions` | `key` | lane, date, code, name, qty, avg_cost, last_price, market_value, pnl, fields(JSON) |
-| `summary` | `key` | lane, date, status, equity, cash, position_count, fields(JSON) |
+| `positions` | `(lane, date, code)` | lane, date, code, name, qty, avg_cost, last_price, market_value, pnl, pnl_pct, fields(JSON) |
+| `summary` | `(lane, date)` | lane, date, status, strategy, equity, cash, equity_peak, drawdown, position_count, candidate_count, new_plan_count, fill_count, fields(JSON) |
 
 ### 其他写入后端
 

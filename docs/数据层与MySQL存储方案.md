@@ -49,17 +49,42 @@
 
 ## 3. 存储方案：MySQL 替代飞书 Base
 
-### 3.1 表结构（scripts/schema.sql，可重复执行）
+### 3.1 表结构 v2（已实施并验证）
 
-| 表 | 唯一业务键 | 内容 |
-|---|---|---|
-| candidates | key（lane+code+date） | 当日候选股 |
-| plans | plan_key | 交易计划（买入/退出） |
-| fills | plan_key | 成交记录 |
-| positions | key（lane+code+date） | 盘后持仓快照 |
-| summary | key（lane+date） | lane 日度汇总（含 candidate/plan/fill 计数） |
+**唯一键：拆分冗余 `key` 字符串列，改为复合唯一键**
 
-除业务键与常用统计列外，其余字段统一放 `fields` JSON 列。
+| 表 | 主键 | 唯一键 | 内容 |
+|---|---|---|---|
+| candidates | id 自增 | uk_lane_date_code (lane, date, code) | 当日候选股 |
+| plans | id 自增 | uk_plan_key (plan_key) | 交易计划（买入/退出） |
+| fills | id 自增 | uk_plan_key (plan_key) | 成交记录 |
+| positions | id 自增 | uk_lane_date_code (lane, date, code) | 盘后持仓快照 |
+| summary | id 自增 | uk_lane_date (lane, date) | lane 日度汇总（含 candidate/plan/fill 计数） |
+
+- 原 `key` 列 = lane+code+date 拼接，与同表三列冗余（派生数据），删除
+- 被复合唯一键覆盖的旧二级索引（如 idx_lane_date）同步删除，避免冗余索引
+- plans/fills 的 `plan_key` 是账本层生成的真实业务标识（fills 经其关联 plans），非拼接冗余，保留不变
+- 幂等机制不变：`ON DUPLICATE KEY UPDATE` 由复合唯一键触发，SQL 中无需引用键名
+
+**类型规范化（金融字段 DOUBLE → DECIMAL）**
+
+- price / avg_cost / last_price → DECIMAL(12,4)
+- amount / equity / cash / market_value / pnl → DECIMAL(16,2)
+- fee → DECIMAL(12,2)；weight / pnl_pct → DECIMAL(10,4)
+- score 保留 DOUBLE（评分非金额）；qty INT
+
+**其他规范项**
+
+- 业务键列（lane/date/code/plan_key）NOT NULL
+- 表与列补中文 COMMENT
+- 索引命名统一 uk_ / idx_ 前缀
+- 保留 id 自增主键（InnoDB 聚簇索引顺序写）+ created_at / updated_at 审计列
+- 除上述独立列外，其余字段仍统一放 `fields` JSON 列
+
+**迁移**
+
+- 新增 `scripts/migration_v2.sql`：ALTER 在线改表（加复合唯一键 → 删旧 key 列与冗余索引 → 改列类型），已有数据无需重跑
+- `scripts/schema.sql` 同步改为 v2，供全新部署
 
 ### 3.2 写入（quant_core/integrations/mysql_sink.py）
 
@@ -79,13 +104,27 @@
 
 每条 lane 仍先生成本地产物（data/artifacts），再幂等写入 MySQL；写入失败不影响本地产物与后续重跑。
 
+### 3.5 可用性设计
+
+1. **本地产物先行**：sink 失败仅告警不阻塞日跑，重跑幂等补齐（已实现）
+2. **自动降级**：MySQL 连接失败 → 本地 JSONL sink，数据不丢（已实现）
+3. **连接保活**：upsert 前 `conn.ping(reconnect=True)`，规避 MySQL wait_timeout 空闲断连（v2 新增）
+4. **单行失败隔离**：单行写入失败只记日志，不影响同 lane 其他行（已实现）
+5. **幂等重跑**：唯一键 + `ON DUPLICATE KEY UPDATE`，任意次重跑（含 `--force`）无重复行（已实现）
+
+### 3.6 v2 代码改动点（确认后实施）
+
+- `mysql_sink.py`：candidates/positions/summary 不再写 `key` 列，行内容完全来自 fields（lane/date/code 已在列中），唯一性由复合键保证
+- BaseSink 接口与 runner 调用不变：runner 仍传 stable_key（飞书/本地 sink 需要），MySQL 侧仅 plans/fills 使用
+- `_split` 的列映射不变（lane/date/code 已是独立列）
+
 ## 4. 文件变更清单
 
 新增：
 
 - `quant_core/data/eastmoney_http.py` —— 东财/腾讯 HTTP 层
 - `quant_core/integrations/mysql_sink.py` —— MySQL 幂等 sink
-- `scripts/schema.sql` —— 建表脚本（5 张表）
+- `scripts/schema.sql` —— 建表脚本（5 张表，v2 规范化结构）
 - `tests/test_emhttp.py`（12 个离线解析用例）、`tests/test_hub_snapshot.py`、`tests/test_v9.py`
 - `README.md`
 
@@ -106,7 +145,8 @@
 
 ## 6. 待确认项
 
-1. MySQL 作为默认写入后端是否确认？（飞书 Base 路由代码保留，改配置即可切回）
-2. 是否还需要 Excel 导出作为人工查看/备份渠道？（目前未实现）
-3. 数据源优先级（新浪 → 东财直连 → 腾讯 → akshare）是否认可？
-4. clist 全市场快照按 best-effort + 历史快照降级处理是否可接受？
+1. **表结构 v2**：已实施 —— 复合唯一键替代冗余 key 列、DECIMAL 类型规范化、COMMENT/约束补齐；migration_v2.sql 可重复执行，5 表幂等写入与冲突更新已验证，63 个单测通过 ✅
+2. MySQL 作为默认写入后端已确认生效（飞书 Base 路由代码保留，改配置即可切回）
+3. 是否还需要 Excel 导出作为人工查看/备份渠道？（目前未实现）
+4. 数据源优先级（新浪 → 东财直连 → 腾讯 → akshare）是否认可？
+5. clist 全市场快照按 best-effort + 历史快照降级处理是否可接受？

@@ -1,12 +1,18 @@
-"""MySQL 写入 sink：用 pymysql 实现幂等 upsert。
+"""MySQL 写入 sink：pymysql 实现幂等 upsert。
 
 连接参数全部来自环境变量：
   MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DB
 
-幂等策略：每张表有唯一键（candidates/positions/summary 用 `key`，
-plans/fills 用 `plan_key`），用 INSERT ... ON DUPLICATE KEY UPDATE。
-可变字段统一存 JSON 列 `fields`，常用检索字段（lane/date/code/score 等）
-抽成独立列便于查询。
+幂等策略（v2 规范化表结构）：
+  - candidates / positions：复合唯一键 (lane, date, code)
+  - summary：复合唯一键 (lane, date)
+  - plans / fills：业务键 plan_key（fills 经其关联 plans）
+  统一用 INSERT ... ON DUPLICATE KEY UPDATE，重跑不产生重复行。
+候选/持仓/汇总三表不再写入冗余拼接键，业务键列直接来自 fields；
+plans/fills 仍由调用方传入 plan_key。
+
+金额/价格列在库中为 DECIMAL，常用检索字段抽成独立列，
+其余可变字段统一存 JSON 列 `fields`。
 """
 from __future__ import annotations
 
@@ -19,29 +25,33 @@ from .feishu_base import BaseSink
 
 log = get_logger("quant_core.mysql")
 
-# 表名 -> 唯一键列名
+# 仅 plans/fills 需要把调用方传入的业务键写入独立列；
+# candidates/positions/summary 的唯一性由 (lane,date,code)/(lane,date) 复合键承担
 _KEY_COLUMN = {
-    "candidates": "key",
     "plans": "plan_key",
     "fills": "plan_key",
-    "positions": "key",
-    "summary": "key",
 }
 
 # 表名 -> 抽成独立列的字段名（其余进 fields JSON）
 _COLUMN_FIELDS = {
     "candidates": {"lane", "date", "code", "name", "score"},
     "plans": {"lane", "code", "name", "side", "trade_date", "gen_date",
-              "qty", "price", "amount", "weight", "reason"},
-    "fills": {"lane", "code", "side", "trade_date", "qty", "price", "amount", "fee"},
+              "qty", "price", "amount", "weight", "reason", "tag"},
+    "fills": {"lane", "code", "side", "trade_date", "qty", "price",
+              "amount", "fee"},
     "positions": {"lane", "date", "code", "name", "qty", "avg_cost",
                   "last_price", "market_value", "pnl", "pnl_pct"},
-    "summary": {"lane", "date", "status", "equity", "cash", "position_count",
+    "summary": {"lane", "date", "status", "strategy", "strategy_name",
+                "equity", "cash", "equity_peak", "drawdown", "position_count",
                 "candidate_count", "new_plan_count", "fill_count"},
 }
 
+# DATE 列：空字符串归一化为 NULL，避免严格模式下写入 zero date
+_DATE_COLUMNS = {"date", "trade_date", "gen_date"}
+
 _NUMERIC = {"score", "qty", "price", "amount", "weight", "fee", "avg_cost",
             "last_price", "market_value", "pnl", "pnl_pct", "equity", "cash",
+            "equity_peak", "drawdown",
             "position_count", "candidate_count", "new_plan_count", "fill_count"}
 _INT = {"qty", "position_count", "candidate_count", "new_plan_count", "fill_count"}
 
@@ -77,7 +87,7 @@ class MysqlSink(BaseSink):
         rest: Dict[str, Any] = {}
         for k, v in fields.items():
             if k in cols:
-                if v is None:
+                if v is None or (k in _DATE_COLUMNS and v == ""):
                     col_vals[k] = None
                 elif k in _INT:
                     try:
@@ -97,21 +107,25 @@ class MysqlSink(BaseSink):
         return col_vals
 
     def upsert(self, table: str, key_field: str, key: str, fields: Dict[str, Any]) -> bool:
-        key_col = _KEY_COLUMN.get(table, key_field)
         row = self._split(table, fields)
-        row[key_col] = key
+        key_col = _KEY_COLUMN.get(table)
+        if key_col:
+            row[key_col] = key
         columns = list(row.keys())
         placeholders = ", ".join(["%s"] * len(columns))
-        update_clause = ", ".join(f"{c}=VALUES({c})" for c in columns if c != key_col)
+        update_clause = ", ".join(f"{c}=VALUES({c})" for c in columns
+                                  if c != key_col)
         sql = (f"INSERT INTO {table} ({', '.join(f'`{c}`' for c in columns)}) "
                f"VALUES ({placeholders}) "
                f"ON DUPLICATE KEY UPDATE {update_clause}")
         values = [row[c] for c in columns]
         try:
+            # 长连接可能被 wait_timeout 断开，写入前自动重连
+            self.conn.ping(reconnect=True)
             with self.conn.cursor() as cur:
                 cur.execute(sql, values)
             return True
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001 - 单行失败隔离，不影响同 lane 其他行
             log.warning("MySQL upsert %s 失败: %s", table, err)
             return False
 
